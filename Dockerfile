@@ -1,56 +1,57 @@
 FROM ubuntu:18.04
-MAINTAINER Odditive "hello@odditive.com"
-# Here we use Odditive's fork of micropython. Feel free to change it to the official one:
-# https://github.com/micropython/micropython.git
+ARG DEBIAN_FRONTEND=noninteractive
 
-ARG REPOSITORY=https://github.com/odditive/micropython
-ARG BRANCH=master
-ARG VERSION=5c88c5996dbde6208e3bec05abc21ff6cd822d26
+ENV MAKEOPTS="-j4"
+ARG REPOSITORY="https://github.com/micropython/micropython.git"
+ARG VERSION="master"
+ARG ESPIDF_VAR="ESPIDF_SUPHASH_V3"
 
-RUN apt-get update \
-  && apt-get install -y gcc git wget make libncurses-dev flex bison gperf python python-pip python-setuptools python-serial python-cryptography python-future python-pyparsing python-pyelftools
+RUN apt-get update && apt-get install -y \
+  python3-pip \
+  gcc \
+  git \
+  wget \
+  make \
+  libncurses-dev \
+  flex \
+  bison \
+  gperf \
+  python \
+  python-pip \
+  python-setuptools \
+  python-serial \
+  python-cryptography \
+  python-future
+
+RUN pip3 install 'pyparsing<2.4'
 
 RUN apt-get clean \
-  && rm -rf /var/lib/apt/lists/* \
-  && useradd micropython
+  && rm -rf /var/lib/apt/lists/*
 
+RUN git clone --branch ${VERSION} --depth 1 ${REPOSITORY} /micropython && \
+  cd /micropython
+WORKDIR /micropython
 
-RUN mkdir -p esp && git clone https://github.com/espressif/esp-idf.git \
-  && git clone $REPOSITORY \
-  && cd esp-idf && git checkout $VERSION && git submodule update --init --recursive\
-  && cd .. && cd micropython && git checkout $BRANCH && git pull origin $BRANCH\
-  && chown -R micropython:micropython ../esp-idf ../micropython ../esp
+RUN TOOLCHAIN=xtensa-esp32-elf-linux64-1.22.0-80-g6c4433a-5.2.0.tar.gz && \
+  wget -q https://dl.espressif.com/dl/${TOOLCHAIN} && \
+  zcat ${TOOLCHAIN} | tar x && \
+  rm ${TOOLCHAIN}
 
-RUN pip install pyserial
+RUN ESPIDF_VERSION=$(grep "${ESPIDF_VAR} :=" ports/esp32/Makefile | cut -d " " -f 3) && \
+  git clone https://github.com/espressif/esp-idf.git && \
+  git -C esp-idf checkout ${ESPIDF_VERSION} && \
+  pip3 install -q -r esp-idf/requirements.txt  && \
+  git -C esp-idf submodule update --init --recursive
 
-USER micropython
+ENV IDF_PATH "/micropython/esp-idf"
+ENV PATH "/micropython/xtensa-esp32-elf/bin:$PATH"
 
-ENV ESPIDF=/esp-idf
+RUN make ${MAKEOPTS} -C mpy-cross
+RUN make ${MAKEOPTS} -C ports/esp32 submodules
 
-RUN cd micropython && make -C mpy-cross
-RUN cd micropython && git submodule init lib/berkeley-db-1.xx && git submodule update
+VOLUME [ "/modules", "/build" ]
 
-RUN cd esp && wget https://dl.espressif.com/dl/xtensa-esp32-elf-linux64-1.22.0-80-g6c4433a-5.2.0.tar.gz
-RUN cd esp && mkdir xtensa-esp32-elf\
-  && tar -xzf ./xtensa-esp32-elf-linux64-1.22.0-80-g6c4433a-5.2.0.tar.gz -C ./xtensa-esp32-elf
-ENV PATH=/esp/xtensa-esp32-elf/xtensa-esp32-elf/bin:$PATH
-
-USER root
-
-#COPY ./app /app
-#WORKDIR /app
-#RUN pip install -r requirements.txt
-#EXPOSE 5000
-#ENTRYPOINT ["python"]
-#CMD ["main.py"]
-
-RUN cd /micropython/ports/esp32 && make
-
-USER root
-
-RUN mkdir /mnt/dev
-ENV PATH=/micropython/mpy-cross:$PATH
-
-
-RUN apt-get update \
-&& apt-get install -y usbutils picocom
+COPY ./entrypoint.sh /micropython/entrypoint.sh
+RUN chmod u+x entrypoint.sh
+ENTRYPOINT [ "/micropython/entrypoint.sh" ]
+CMD ["exit"]
