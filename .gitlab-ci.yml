@@ -8,7 +8,7 @@ include:
 
 build:
   stage: build
-  image: registry.gitlab.com/tymek/espython32
+  image: scrlk/esp32-micropython
   only:
     - master
   script:
