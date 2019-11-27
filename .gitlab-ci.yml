@@ -1,3 +1,18 @@
+stages:
+  - deploy
+  - build
+
 include:
   - project: 'Tymek/CI'
     file: '/.dockerize.yml'
+
+build:
+  stage: build
+  image: registry.gitlab.com/tymek/espython32
+  only:
+    - master
+  script:
+    - /micropython/build
+  artifacts:
+    paths:
+      - build
